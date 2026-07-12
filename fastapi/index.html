@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Wishlist Price Checker</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-base-200 min-h-screen">
+  <!-- Name gate: shown until the user tells us who they are -->
+  <div id="nameGate" class="hidden min-h-screen flex items-center justify-center p-6">
+    <div class="card bg-base-100 shadow-xl w-full max-w-md">
+      <div class="card-body text-center">
+        <div class="text-5xl mb-2">🛒</div>
+        <h1 class="text-2xl font-bold">Wishlist Price Checker</h1>
+        <p class="opacity-60 mb-4">What's your name?</p>
+        <input id="userName" class="input input-bordered w-full text-center"
+               placeholder="Your name"
+               onkeydown="if(event.key==='Enter') saveName()" />
+        <button class="btn btn-primary mt-4" onclick="saveName()">Start my wishlist →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main app: shown once we have a name -->
+  <div id="app" class="hidden max-w-2xl mx-auto p-6">
+    <header class="mb-6 flex items-start justify-between gap-3">
+      <div>
+        <h1 id="title" class="text-3xl font-bold flex items-center gap-2">🛒 Wishlist</h1>
+        <p class="text-sm opacity-60 mt-1">Sourced from Amazon &amp; major stores</p>
+        <div class="badge badge-ghost gap-1 mt-2">
+          <span class="loading loading-ring loading-xs"></span>
+          Prices refresh daily · every 1 min in this demo
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="changeName()">Not you?</button>
+    </header>
+
+    <div class="stats bg-base-100 shadow w-full mb-6">
+      <div class="stat">
+        <div class="stat-title">Your budget</div>
+        <div class="stat-value text-primary" id="total">$0.00</div>
+        <div class="stat-desc" id="count">Sum of all item prices</div>
+      </div>
+    </div>
+
+    <div class="join w-full mb-6">
+      <input id="name" class="input input-bordered join-item flex-1"
+             placeholder="e.g. Sony WH-1000XM5 headphones"
+             onkeydown="if(event.key==='Enter') add()" />
+      <button id="addBtn" class="btn btn-primary join-item" onclick="add()">Add</button>
+      <button id="checkBtn" class="btn btn-outline join-item" onclick="checkAll()">Check prices</button>
+    </div>
+
+    <div id="list" class="space-y-3"></div>
+  </div>
+
+  <script>
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    // --- User name: remembered on this device; wishlist is keyed by it on the server ---
+    function currentUser() { return localStorage.getItem('wishlistUser') || ''; }
+    function userParam() { return 'user=' + encodeURIComponent(currentUser()); }
+
+    function saveName() {
+      const name = document.getElementById('userName').value.trim();
+      if (!name) return;
+      localStorage.setItem('wishlistUser', name);
+      showApp();
+    }
+    function changeName() {
+      localStorage.removeItem('wishlistUser');
+      showGate();
+    }
+    function showGate() {
+      document.getElementById('app').classList.add('hidden');
+      document.getElementById('nameGate').classList.remove('hidden');
+      document.getElementById('userName').focus();
+    }
+    function showApp() {
+      const name = localStorage.getItem('wishlistUser');
+      document.getElementById('nameGate').classList.add('hidden');
+      document.getElementById('app').classList.remove('hidden');
+      document.getElementById('title').textContent = `🛒 ${name}'s Wishlist`;
+      document.title = `${name}'s Wishlist`;
+      load();
+    }
+    function boot() {
+      if (localStorage.getItem('wishlistUser')) showApp();
+      else showGate();
+    }
+    function indicator(i) {
+      if (i.price == null) return '<span class="badge badge-ghost gap-1"><span class="loading loading-spinner loading-xs"></span>Checking…</span>';
+      if (i.good_deal) return '<span class="badge badge-success">✓ Good deal</span>';
+      return '<span class="badge badge-ghost">Checked</span>';
+    }
+    function sourceLinks(i) {
+      const sources = (i.sources || []).slice(0, 3);
+      if (!sources.length) return '';
+      const links = sources.map(s =>
+        `<a href="${esc(s.url)}" target="_blank" rel="noopener"
+            class="link link-primary text-xs inline-flex items-center gap-1 max-w-[16rem] truncate">
+           🔗 ${esc(s.title)}
+         </a>`).join('');
+      return `<div class="mt-2 flex flex-wrap gap-x-4 gap-y-1">${links}</div>`;
+    }
+    let pollTimer = null;
+    async function load() {
+      const data = await (await fetch('/api/items?' + userParam())).json();
+      // Keep refreshing while any item is still being priced in the background.
+      clearTimeout(pollTimer);
+      if (data.items.some(i => i.price == null)) pollTimer = setTimeout(load, 1500);
+      document.getElementById('total').textContent = '$' + Number(data.total).toFixed(2);
+      document.getElementById('count').textContent =
+        data.items.length ? `${data.items.length} item${data.items.length > 1 ? 's' : ''} in your wishlist` : 'Sum of all item prices';
+      document.getElementById('list').innerHTML = data.items.map(i => `
+        <div class="card bg-base-100 shadow-sm hover:shadow-md transition-shadow">
+          <div class="card-body p-4">
+            <div class="flex justify-between items-start gap-3">
+              <div class="min-w-0">
+                <div class="font-semibold truncate">${esc(i.name)}</div>
+                <div class="mt-1 flex items-center gap-2 flex-wrap">
+                  ${indicator(i)}
+                  ${i.note ? `<span class="text-sm opacity-60">${esc(i.note)}</span>` : ''}
+                </div>
+              </div>
+              <div class="flex items-center gap-3 shrink-0">
+                ${i.price != null ? '<span class="text-lg font-bold">$' + Number(i.price).toFixed(2) + '</span>' : ''}
+                <button class="btn btn-ghost btn-sm btn-circle" title="Remove" onclick="del(${i.id})">✕</button>
+              </div>
+            </div>
+            ${sourceLinks(i)}
+          </div>
+        </div>`).join('') ||
+        '<div class="text-center opacity-60 py-10">No items yet — add something you want to buy. 👆</div>';
+    }
+    async function add() {
+      const el = document.getElementById('name');
+      const btn = document.getElementById('addBtn');
+      const name = el.value.trim();
+      if (!name) return;
+      el.value = '';
+      btn.classList.add('btn-disabled');
+      btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span>';
+      try {
+        await fetch('/api/items?' + userParam(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+      } finally {
+        btn.classList.remove('btn-disabled');
+        btn.textContent = 'Add';
+        load();
+      }
+    }
+    async function checkAll() {
+      const btn = document.getElementById('checkBtn');
+      btn.classList.add('btn-disabled');
+      btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span>Checking';
+      try {
+        await fetch('/api/check-prices?' + userParam(), { method: 'POST' });
+      } finally {
+        btn.classList.remove('btn-disabled');
+        btn.textContent = 'Check prices';
+        load();
+      }
+    }
+    async function del(id) { await fetch('/api/items/' + id + '?' + userParam(), { method: 'DELETE' }); load(); }
+    boot();
+  </script>
+</body>
+</html>

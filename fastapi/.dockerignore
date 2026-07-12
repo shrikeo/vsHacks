@@ -1,0 +1,27 @@
+# Secrets — never bake into the image (injected at runtime instead)
+.env
+.env.*
+.greennode.json
+*registry*credentials*.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+env/
+.venv/
+
+# Node / Tailwind tooling (not needed at runtime)
+node_modules/
+package-lock.json
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Docs / state
+*.md
+.agentbase-state.json
