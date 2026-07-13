@@ -29,7 +29,7 @@ class PriceService:
             '{"price": <number>, "goodDeal": <true|false>, "note": "<short note incl. best store>"}'
         )
 
-        # Grounded calls occasionally return a transient 503; retry with backoff.
+        # Retry transient failures: 503 overloads and 429 free-tier rate limits.
         last_error = None
         for attempt in range(max_retries):
             try:
@@ -49,7 +49,19 @@ class PriceService:
                 last_error = error
                 if attempt < max_retries - 1:
                     time.sleep(2 ** attempt)
+            except genai_errors.ClientError as error:
+                last_error = error
+                # Only 429 (rate limit / quota) is worth retrying — honor Google's delay.
+                if getattr(error, "code", None) != 429 or attempt == max_retries - 1:
+                    raise
+                time.sleep(self._retry_after(error, attempt))
         raise last_error
+
+    @staticmethod
+    def _retry_after(error, attempt, cap=35):
+        # Pull "retryDelay: 32s" out of the 429 body; fall back to exponential backoff.
+        match = re.search(r"retry(?:Delay)?['\":\s]+(\d+)", str(error))
+        return min(int(match.group(1)) + 1, cap) if match else min(2 ** attempt, cap)
 
     def _parse(self, text):
         # Grounded replies aren't pure JSON — pull the first {...} out of the text.
